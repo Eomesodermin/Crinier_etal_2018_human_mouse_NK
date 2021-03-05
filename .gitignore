@@ -35,5 +35,8 @@ vignettes/*.pdf
 *.utf8.md
 *.knit.md
 
+# ignore output files 
+output/**/**
+
 # R Environment Variables
 .Renviron

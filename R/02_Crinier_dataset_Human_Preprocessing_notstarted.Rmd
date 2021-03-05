@@ -1,0 +1,781 @@
+---
+title: "Crinier_dataset_Preprocessing"
+author: "Dillon Corvino"
+date: "13/06/2019"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    theme: united
+    highlight: tango
+    df_print: paged
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+Built with R version `r getRversion()`
+
+## Setup {.tabset}
+
+### Dataset information
+```{r Dataset_Info}
+
+# High-Dimensional Single-cell analysis identifies organ-specific signatures and conserved NK cell subsets in Humans and Mice
+# Crinier et al., 2018, Immunity 
+
+# Organs: Blood and Spleen 
+# Species: Human and Mouse
+
+
+# 6 human samples
+# 6 mouse samples
+
+# samples 1-3 = Spleen
+# samples 4-6 = Blood
+
+
+```
+
+### Environment
+```{r setup}
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,  
+  eval = TRUE, 
+  tidy = TRUE
+)
+
+knitr::opts_knit$set(
+  root.dir = "../"
+)
+
+
+# Environment Set up
+rm(list = ls()) #Clean workspace
+cat("\014")     #Clean Console
+gc() # Free memory
+
+# Establish working directory
+library("rstudioapi")
+
+# Set working directory to source file location
+setwd(dirname(getActiveDocumentContext()$path))
+setwd("..")
+
+# Load packages
+source("R/Load_packages.R", local = knitr::knit_global())
+
+# Create output directories & load custom functions & colour scheme
+source("R/Setup.R", local = knitr::knit_global())
+
+```
+
+### Read and format Human samples
+```{r reading_data_human}
+
+# List files 
+data.list <- list.files("Data/", pattern = ".csv")
+
+# Identify human files
+human.logic <- grepl("sample.h", data.list)
+
+human.files <- data.list[human.logic]
+
+#################
+# Human dataset 
+#################
+
+# Create name variable
+file.names <- gsub(".*_", "", human.files)
+file.names <- gsub(".csv", "", file.names)
+
+# Read in human samples
+for (i in seq_along(human.files)){
+  assign(file.names[i], read.csv(paste0("Data/", human.files[i])))
+}
+
+
+# Merge data by organ of origin
+spleen.raw <- 
+  full_join(sample1h, sample2h,  by = "X") %>%
+  full_join(sample3h,  by = "X") %>%
+  arrange(X, desc = T)
+  
+blood.raw <- 
+  full_join(sample4h, sample5h,  by = "X") %>%
+  full_join(sample6h,  by = "X") %>%
+  arrange(X, desc = T)
+
+
+# Checking all genes were merged 
+spleen.geneIDs <- unique(c(as.character(sample1h$X), 
+                          as.character(sample2h$X), 
+                          as.character(sample3h$X)))
+length(spleen.geneIDs) == nrow(spleen.raw)
+
+blood.geneIDs <- unique(c(as.character(sample4h$X), 
+                          as.character(sample5h$X), 
+                          as.character(sample6h$X)))
+
+length(blood.geneIDs) == nrow(blood.raw)
+
+# overview stats
+dim(spleen.raw)
+dim(blood.raw)
+
+#####################
+# Format dataframe
+#####################
+
+# Put gene ID as rownames
+rownames(spleen.raw) <- as.character(spleen.raw$X)
+rownames(blood.raw) <- as.character(blood.raw$X)
+
+# remove former gene ID column
+index.val <- grep("^X$", colnames(spleen.raw))
+colnames(spleen.raw)[index.val]
+spleen.raw <- spleen.raw[,-index.val]
+
+
+index.val <- grep("^X$", colnames(blood.raw))
+colnames(blood.raw)[index.val]
+blood.raw <- blood.raw[,-index.val]
+
+
+# Annotate the cell Ids so can be defined later
+colnames(spleen.raw) <- paste0(colnames(spleen.raw), "_Sp")
+colnames(blood.raw) <- paste0(colnames(blood.raw), "_Bl")
+
+
+# Merge all data together
+human.data <- merge(spleen.raw, blood.raw, by = "row.names", all = TRUE)
+
+# Annotate
+rownames(human.data) <- human.data$Row.names
+
+index.val <- grep("^Row.names$", colnames(human.data))
+colnames(human.data)[index.val]
+human.data <- human.data[,-index.val]
+
+
+# Correct number of columns 
+total.geneIDs <- unique(c(spleen.geneIDs, 
+                          blood.geneIDs))
+
+length(total.geneIDs) == nrow(human.data)
+
+# Remove NA values
+na.values <- is.na(human.data)
+sum(na.values) # 19,966,040
+
+# Assigning NA values as 0
+human.data[na.values] <- 0
+
+# Checking NA values are removed
+sum(is.na(human.data)) 
+
+# Checking for any merging conflicts
+# Found that some duplicate annoation for 7 cells in the blood
+colnames(human.data)[grep(".x", colnames(human.data))]
+colnames(human.data)[grep(".y", colnames(human.data))]
+
+# Remove these duplicated columns
+x.index <- grep(".x", colnames(human.data))
+y.index <- grep(".y", colnames(human.data))
+human.data <- human.data[, -c(x.index, y.index)]
+
+dim(human.data) # 15,657 genes and 8,480 cells 
+
+
+# Write data to file for easy use later
+write.csv(human.data, "output/tables/Human_Sp_and_Bl_samples_raw.csv")
+
+# remove large datafiles
+rm(sample1h, sample2h,
+   sample3h, sample4h,
+   sample5h, sample6h, 
+   spleen.raw, human.data,
+   blood.raw)
+
+```
+
+### Read and format Mouse samples
+```{r reading_data_mouse}
+
+# List files 
+data.list <- list.files("Data/", pattern = ".csv")
+
+# Identify mouse files
+mouse.logic <- grepl("sample.m", data.list)
+
+mouse.files <- data.list[mouse.logic]
+
+#################
+# Mouse dataset 
+#################
+
+# Create name variable
+file.names <- gsub(".*_", "", mouse.files)
+file.names <- gsub(".csv", "", file.names)
+
+# Read in human samples
+for (i in seq_along(mouse.files)){
+  assign(file.names[i], read.csv(paste0("Data/", mouse.files[i])))
+}
+
+
+# Merge data by organ of origin
+spleen.raw <- 
+  full_join(sample1m, sample2m,  by = "X") %>%
+  full_join(sample3m,  by = "X") %>%
+  arrange(X, desc = T)
+  
+blood.raw <- 
+  full_join(sample4m, sample5m,  by = "X") %>%
+  full_join(sample6m,  by = "X") %>%
+  arrange(X, desc = T)
+
+# Checking all genes were merged 
+spleen.geneIDs <- unique(c(as.character(sample1m$X), 
+                          as.character(sample2m$X), 
+                          as.character(sample3m$X)))
+
+length(spleen.geneIDs) == nrow(spleen.raw)
+
+blood.geneIDs <- unique(c(as.character(sample4m$X), 
+                          as.character(sample5m$X), 
+                          as.character(sample6m$X)))
+
+length(blood.geneIDs) == nrow(blood.raw)
+
+# overview stats
+dim(spleen.raw)
+dim(blood.raw)
+
+#####################
+# Format dataframe
+#####################
+
+# Put gene ID as rownames
+rownames(spleen.raw) <- as.character(spleen.raw$X)
+rownames(blood.raw) <- as.character(blood.raw$X)
+
+# remove former gene ID column
+index.val <- grep("^X$", colnames(spleen.raw))
+colnames(spleen.raw)[index.val]
+spleen.raw <- spleen.raw[,-index.val]
+
+
+index.val <- grep("^X$", colnames(blood.raw))
+colnames(blood.raw)[index.val]
+blood.raw <- blood.raw[,-index.val]
+
+
+# Annotate the cell Ids so can be defined later
+colnames(spleen.raw) <- paste0(colnames(spleen.raw), "_Sp")
+colnames(blood.raw) <- paste0(colnames(blood.raw), "_Bl")
+
+
+# Merge all data together
+mouse.data <- merge(spleen.raw, blood.raw, 
+                    by = "row.names", 
+                    all = TRUE)
+
+# Annotate
+rownames(mouse.data) <- mouse.data$Row.names
+
+index.val <- grep("^Row.names$", colnames(mouse.data))
+colnames(mouse.data)[index.val]
+mouse.data <- mouse.data[,-index.val]
+
+
+# Correct number of columns 
+total.geneIDs <- unique(c(spleen.geneIDs, 
+                          blood.geneIDs))
+
+length(total.geneIDs) == nrow(mouse.data)
+
+# Remove NA values
+na.values <- is.na(mouse.data)
+sum(na.values) # 10,686,471
+
+# Assigning NA values as 0
+mouse.data[na.values] <- 0
+
+# Checking NA values are removed
+sum(is.na(mouse.data)) 
+
+# Checking for any merging conflicts
+# found some duplicate cell annotations
+colnames(mouse.data)[grep(".x", colnames(mouse.data))]
+colnames(mouse.data)[grep(".y", colnames(mouse.data))]
+
+# Remove these duplicated columns
+x.index <- grep(".x", colnames(mouse.data))
+y.index <- grep(".y", colnames(mouse.data))
+mouse.data <- mouse.data[, -c(x.index, y.index)]
+
+dim(mouse.data) # 12,150 genes and 8,203 cells 
+
+
+# Write data to file for easy use later
+write.csv(mouse.data, "output/tables/Mouse_Sp_and_Bl_samples_raw.csv")
+
+# remove large datafiles
+rm(sample1m, sample2m,
+   sample3m, sample4m,
+   sample5m, sample6m, 
+   spleen.raw, mouse.data,
+   blood.raw)
+
+```
+
+# Uses input from previous code chunk
+```{r create_Seurat_object}
+
+human.data <- read.csv("output/tables/Human_Sp_and_Bl_samples_raw.csv")
+dim(human.data)
+human.data[1:10, 1:10]
+
+rownames(human.data) <- human.data$X
+human.data <- human.data[, -1]
+
+
+#spleen.logic <- grepl("_Sp", colnames(human.data))
+#blood.logic <- grepl("_Bl", colnames(human.data))
+
+#spleen.data <- human.data[, spleen.logic]
+#blood.data <- human.data[, blood.logic]
+
+
+
+
+temp.data <- read.csv("Data/Metadata/Mouse2Blood_metadata.csv")
+head(temp.data)
+tail(temp.data)
+
+
+
+data.list <- list.files("Data/Metadata", pattern = ".csv")
+
+
+#################
+# Mouse dataset 
+#################
+
+# Create name variable
+file.names <- gsub("_.*", "", data.list)
+file.names <- gsub(".csv", "", file.names)
+
+# Read in human samples
+for (i in seq_along(data.list)){
+  assign(file.names[i], read.csv(paste0("Data/Metadata/", data.list[i])))
+}
+
+
+# Initialize the Seurat object with the raw (non-normalized data).  
+# Keep all genes expressed in >= 3 cells. 
+# Keep all cells with at least 200 detected genes
+
+human.seurat <- CreateSeuratObject(counts = human.data, 
+                                    min.cells = 3, 
+                                    min.genes = 200,
+                                    is.expr = 0, # for UMI datasets this should be 0, and is default
+                                    project = "Human_NK",
+                                    display.progress = TRUE)
+
+
+human.seurat
+
+saveRDS(human.seurat, "Exported_RDS_files/Human_raw_Seurat_Object.RData")
+
+```
+
+
+## Analysis {.tabset}
+### QC & Normalisation
+```{r QC_and_normalisation}
+
+################################################
+#  Get percentage Mitochondria gene expression
+################################################
+
+
+
+species.ori <- "human"
+
+if (species.ori == "mouse") {
+  pat <- "^mt-"
+}else if (species.ori == "human"){
+  pat <- "^MT-"
+}
+  
+
+human.seurat[["percent.mito"]] <- PercentageFeatureSet(human.seurat, pattern = paste0(pat))
+
+
+VlnPlot(human.seurat, 
+        features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), 
+        pt.size = 0.1)
+
+dev.copy(pdf, "output/QC/QC_nFeature_nCount_RNA_percentMito.pdf")
+dev.off()
+
+
+VlnPlot(human.seurat, 
+              features = "percent.mito", 
+              pt.size = 0.1, 
+              y.max = 20) 
+
+dev.copy(pdf, "output/QC/QC_percentMito.pdf")
+dev.off()
+
+
+
+head(human.seurat@meta.data)
+str(human.seurat@meta.data)
+
+#  Filter cells
+# Remove cells with < 200 genes, and remove cells with > 10% mitochondrial genes
+
+human.seurat.filt <- subset(human.seurat, 
+                             subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mito < 10)
+
+
+
+
+
+# Vis after filtering
+VlnPlot(human.seurat,
+        features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), 
+        pt.size = 0.1)
+
+VlnPlot(human.seurat.filt, 
+        features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), 
+        pt.size = 0.1)
+
+dev.copy(pdf, "output/QC/QC_nFeature_nCount_RNA_percentMito_Post_filtering.pdf")
+dev.off()
+
+
+# Mitopercent
+p1 <- VlnPlot(human.seurat, 
+              features = "percent.mito", 
+              pt.size = 0.1, 
+              y.max = 20) + NoLegend() + 
+  ggtitle("Before filtering")
+
+p2 <- VlnPlot(human.seurat.filt, 
+              features = "percent.mito", 
+              pt.size = 0.1, 
+              y.max = 20) + NoLegend() + 
+  ggtitle("After filtering")
+
+p1 | p2
+
+dev.copy(pdf, "output/QC/QC_percentMito_filtering.pdf")
+dev.off()
+
+# Stats
+human.seurat # 12,236 genes across 8,480 cells
+human.seurat.filt # 12,236 genes across 83,51 cells
+
+# Therefore
+8480 - 8351
+# 3129 cells were deleted
+
+
+####################################
+# Annotating data by organ origin
+####################################
+
+#  Add organ label to metadata
+organ <- rownames(human.seurat.filt@meta.data)
+organ <- gsub(".*_","", organ)
+organ <- gsub("Sp","Spleen", organ)
+organ <- gsub("Bl","Blood", organ)
+human.seurat.filt@meta.data$organ <- organ
+
+
+
+# QC plots subset by organ assignment
+VlnPlot(human.seurat.filt, 
+        features = c("nFeature_RNA"), 
+        group.by = "organ",
+        pt.size = 0.1)
+
+dev.copy(pdf, "output/QC/QC_nFeature_postfiltering_byorgan.pdf")
+dev.off()
+
+
+# QC plots subset by organ assignment
+VlnPlot(human.seurat.filt, 
+        features = c("nCount_RNA"), 
+        group.by = "organ",
+        pt.size = 0.1)
+
+dev.copy(pdf, "output/QC/QC_nCount_postfiltering_byorgan.pdf")
+dev.off()
+
+
+# QC plots subset by organ assignment
+VlnPlot(human.seurat.filt, 
+        features = c("percent.mito"), 
+        group.by = "organ",
+        pt.size = 0.1)
+
+dev.copy(pdf, "output/QC/QC_percentMito_postfiltering_byorgan.pdf")
+dev.off()
+
+
+################################################
+# Normalise, scale & find variable genes 
+################################################
+
+# Normalise RNA data by logNormalize
+human.seurat.filt <- NormalizeData(human.seurat.filt,
+                                    normalization.method = "LogNormalize",
+                                    scale.factor = 10000,
+                                    verbose = TRUE)
+
+
+# Find variable genes
+human.seurat.filt <- FindVariableFeatures(human.seurat.filt,
+                                           nfeatures = 1000,
+                                           verbose = TRUE)
+
+human.seurat.filt <- ScaleData(human.seurat.filt,
+                                vars.to.regress = c("nCount_RNA", "percent.mito"),
+                                model.use = "linear",
+                                do.scale = TRUE,
+                                do.center = TRUE,
+                                verbose = TRUE)
+
+
+###############################
+# Remove unneeded variables
+###############################
+
+rm(human.seurat,
+   human.data)
+
+```
+
+
+
+## Unbiased Clustering {.tabset}
+
+### Clustering
+```{r Initial_clustering}
+
+# Create output dir
+if(!dir.exists("output/figures/PCA")){
+  dir.create("output/figures/PCA", 
+             recursive = T)}
+
+
+
+# Set seed for reproducibility
+set.seed(42)
+
+###########
+# Run PCA
+###########
+human.seurat.filt <- RunPCA(human.seurat.filt, 
+                             features = human.seurat.filt@assays$RNA@var.features,
+                             npcs = 50,
+                             verbose = TRUE, 
+                             rev.pca = TRUE,
+                             seed.use = 42)
+
+
+#########################
+# Plot PCA projection
+#########################
+
+PCAPlot(human.seurat.filt, 
+        dims = c(1, 2),
+        pt.size = 2,
+        group.by = "organ")
+
+dev.copy(pdf, "output/figures/PCA/PCA_by_organ_Dim1_2.pdf")
+dev.off()
+
+PCAPlot(human.seurat.filt, 
+        dims = c(2, 3),
+        pt.size = 2,
+        group.by = "organ")
+
+dev.copy(pdf, "output/figures/PCA/PCA_by_organ_Dim2_3.pdf")
+dev.off()
+
+
+#################################################################
+# Determine statistically significant principal components
+#################################################################
+
+# NOTE: This process can take a long time for big datasets, comment out for
+# expediency.  More approximate techniques such as those implemented in
+# PCElbowPlot() can be used to reduce computation time
+
+if(long.compute){
+  
+  human.seurat.filt <- JackStraw(human.seurat.filt,
+                                  dims = 50)
+  human.seurat.filt <- ScoreJackStraw(human.seurat.filt,
+                                       dims = 1:50)
+  
+  JackStrawPlot(human.seurat.filt, dims = 1:30)
+  
+  dev.copy(pdf, "output/QC/JackStrawPlot.pdf")
+  dev.off()
+  
+}
+
+# PC 24 = last sig dim
+
+
+# Use quick approximation of significant PCs
+ElbowPlot(human.seurat.filt, ndims = 20)
+dev.copy(pdf, "output/QC/PC_elbowplot.pdf")
+dev.off()
+
+
+##########################
+# Find clusters using PCA
+##########################
+
+human.seurat.filt <- FindNeighbors(human.seurat.filt,
+                                    dims = 1:20)
+
+human.seurat.filt <- FindClusters(human.seurat.filt,
+                                   resolution = 0.1)
+
+
+# Resolution of 0.1 gives 5 communities
+
+```
+
+
+### UMAP and tSNE dim Reduction
+```{r Dim_reduction}
+
+# Create output dir
+if(!dir.exists("output/figures/tSNE")){
+  dir.create("output/figures/tSNE", 
+             recursive = T)}
+
+if(!dir.exists("output/figures/UMAP")){
+  dir.create("output/figures/UMAP", 
+             recursive = T)}
+
+
+# Set assay 
+DefaultAssay(human.seurat.filt) <- "RNA"
+
+# Set Idents
+Idents(human.seurat.filt) <- human.seurat.filt@meta.data$organ
+
+##########################
+# tSNE dim reduction
+##########################
+
+# tSNE perplex looks nice at 30
+
+human.seurat.filt <- RunTSNE(human.seurat.filt,
+                              reduction = "pca",
+                              dims = 1:20,
+                              perplexity = 30,
+                              method = "FIt-SNE",
+                              seed.use = 42,
+                              dim.embed = 2)
+
+TSNEPlot(human.seurat.filt,
+         label = TRUE, 
+         group.by = "organ")
+
+dev.copy(pdf, "output/figures/tSNE/tSNE_group_by_organ.pdf")
+dev.off()
+
+
+
+TSNEPlot(human.seurat.filt,
+         label = TRUE, 
+         group.by = "seurat_clusters")
+
+dev.copy(pdf, "output/figures/tSNE/tSNE_group_by_seurat_clusters.pdf")
+dev.off()
+
+
+##########################
+# UMAP dim reduction
+##########################
+# UMAP min dis looks nice at = 0.5
+# and nval = 45
+
+human.seurat.filt <- RunUMAP(human.seurat.filt,
+                              reduction = "pca",
+                              dims = 1:20,
+                              umap.method = "uwot", 
+                              n.neighbors = 45, # 5 to 50 // 45
+                              min.dist = 0.5, # Sensible values are in the range 0.001 to 0.5 // 0.5
+                              seed.use = 42)
+
+# Larger values = global structure
+# small value = local structure
+
+UMAPPlot(human.seurat.filt,
+         label = T,
+         group.by = "organ")
+
+dev.copy(pdf, "output/figures/UMAP/UMAP_group_by_organ.pdf")
+dev.off()
+
+
+UMAPPlot(human.seurat.filt,
+         label = TRUE, 
+         group.by = "seurat_clusters")
+
+dev.copy(pdf, "output/figures/UMAP/UMAP_group_by_seurat_clusters.pdf")
+dev.off()
+
+
+```
+
+
+### Export seurat object
+```{r export_seurat_RDS}
+
+saveRDS(human.seurat.filt, file = "Exported_RDS_files/human_seurat_filt.rds")
+
+```
+
+
+
+## Imputation {.tabset}
+
+### Imputation calculation
+```{r seurat_imputation}
+
+# Impute gene expression 
+human.seurat.filt <- RunALRA(human.seurat.filt, 
+                              genes.use = rownames(human.seurat.filt))
+
+#The matrix went from 5.61% nonzero to 53.96% nonzero
+
+# set assay 
+DefaultAssay(human.seurat.filt) <- "RNA"
+
+```
+
+### Export seurat object - imputed
+```{r export_imputed_RDS}
+
+saveRDS(human.seurat.filt, file = "Exported_RDS_files/human_seurat_filt.rds")
+
+```
+
