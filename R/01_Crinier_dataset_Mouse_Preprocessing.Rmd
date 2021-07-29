@@ -111,23 +111,6 @@ for (i in seq_along(metadata.list)){
 # Filter sample data by cell IDs retained in metadata
 # Cells retained in metadata are after filtering reported in original paper 
 
-
-clean.data <- function(sample.data, metadata){
-  
-  # Set rownames as gene IDs
-  rownames(sample.data) <- sample.data$X
-  
-  # remove former gene ID column
-  sample.data <- sample.data[,-grep("^X$", colnames(sample.data))]
-  
-  # Filter counts matrix for cells found in metadata
-  keep.logic <- colnames(sample.data) %in% metadata$X
-  sample.data <- sample.data[ , keep.logic]
-  
-  return(sample.data)
-}
-
-
 sample1m <- clean.data(sample1m, Mouse1Spleen_metadata)
 sample2m <- clean.data(sample2m, Mouse2Spleen_metadata)
 sample3m <- clean.data(sample3m, Mouse3Spleen_metadata)
@@ -137,65 +120,55 @@ sample5m <- clean.data(sample5m, Mouse2Blood_metadata)
 sample6m <- clean.data(sample6m, Mouse3Blood_metadata)
 
 
+# Annotate the cell ids so can be identified later
+colnames(sample1m) <- paste0(colnames(sample1m), "_Sp1")
+colnames(sample2m) <- paste0(colnames(sample2m), "_Sp2")
+colnames(sample3m) <- paste0(colnames(sample3m), "_Sp3")
+
+colnames(sample4m) <- paste0(colnames(sample4m), "_Bl1")
+colnames(sample5m) <- paste0(colnames(sample5m), "_Bl2")
+colnames(sample6m) <- paste0(colnames(sample6m), "_Bl3")
 
 
-# Up to here
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#################
-# Mouse dataset 
-#################
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+########################################
 # Merge data by organ of origin
+########################################
+
+# Dplyr doesnt allow merge by rowname. so have to make it a variable and then return the variable
+
+# Spleen dataset
+sample1m$GeneID <- row.names(sample1m)
+sample2m$GeneID <- row.names(sample2m)
+sample3m$GeneID <- row.names(sample3m)
+
 spleen.raw <- 
-  full_join(sample1m, sample2m,  by = "X") %>%
-  full_join(sample3m,  by = "X") %>%
-  arrange(X, desc = T)
+  full_join(sample1m, sample2m,  by = "GeneID") %>%
+  full_join(sample3m,  by = "GeneID") %>%
+  arrange(desc = TRUE) %>%
+  column_to_rownames(var = "GeneID")
   
+# Blood dataset
+sample4m$GeneID <- row.names(sample4m)
+sample5m$GeneID <- row.names(sample5m)
+sample6m$GeneID <- row.names(sample6m)
+
 blood.raw <- 
-  full_join(sample4m, sample5m,  by = "X") %>%
-  full_join(sample6m,  by = "X") %>%
-  arrange(X, desc = T)
+  full_join(sample4m, sample5m,  by = "GeneID") %>%
+  full_join(sample6m,  by = "GeneID") %>%
+  arrange(desc = TRUE) %>%
+  column_to_rownames(var = "GeneID")
+
 
 # Checking all genes were merged 
-spleen.geneIDs <- unique(c(as.character(sample1m$X), 
-                          as.character(sample2m$X), 
-                          as.character(sample3m$X)))
+spleen.geneIDs <- unique(c(as.character(sample1m$GeneID), 
+                          as.character(sample2m$GeneID), 
+                          as.character(sample3m$GeneID)))
 
 length(spleen.geneIDs) == nrow(spleen.raw)
 
-blood.geneIDs <- unique(c(as.character(sample4m$X), 
-                          as.character(sample5m$X), 
-                          as.character(sample6m$X)))
+blood.geneIDs <- unique(c(as.character(sample4m$GeneID), 
+                          as.character(sample5m$GeneID), 
+                          as.character(sample6m$GeneID)))
 
 length(blood.geneIDs) == nrow(blood.raw)
 
@@ -206,26 +179,6 @@ dim(blood.raw)
 #####################
 # Format dataframe
 #####################
-
-# Put gene ID as rownames
-rownames(spleen.raw) <- as.character(spleen.raw$X)
-rownames(blood.raw) <- as.character(blood.raw$X)
-
-# remove former gene ID column
-index.val <- grep("^X$", colnames(spleen.raw))
-colnames(spleen.raw)[index.val]
-spleen.raw <- spleen.raw[,-index.val]
-
-
-index.val <- grep("^X$", colnames(blood.raw))
-colnames(blood.raw)[index.val]
-blood.raw <- blood.raw[,-index.val]
-
-
-# Annotate the cell Ids so can be defined later
-colnames(spleen.raw) <- paste0(colnames(spleen.raw), "_Sp")
-colnames(blood.raw) <- paste0(colnames(blood.raw), "_Bl")
-
 
 # Merge all data together
 mouse.data <- merge(spleen.raw, blood.raw, 
@@ -246,9 +199,10 @@ total.geneIDs <- unique(c(spleen.geneIDs,
 
 length(total.geneIDs) == nrow(mouse.data)
 
+# When a gene was detected in spleen or blood but not the other there are now NA values for this entry in the other dataset cells
 # Remove NA values
 na.values <- is.na(mouse.data)
-sum(na.values) # 10,686,471
+sum(na.values) # 10,661,721
 
 # Assigning NA values as 0
 mouse.data[na.values] <- 0
@@ -256,89 +210,88 @@ mouse.data[na.values] <- 0
 # Checking NA values are removed
 sum(is.na(mouse.data)) 
 
-# Checking for any merging conflicts
-# found some duplicate cell annotations
-colnames(mouse.data)[grep(".x", colnames(mouse.data))]
-colnames(mouse.data)[grep(".y", colnames(mouse.data))]
-
-# Remove these duplicated columns
-x.index <- grep(".x", colnames(mouse.data))
-y.index <- grep(".y", colnames(mouse.data))
-mouse.data <- mouse.data[, -c(x.index, y.index)]
-
-dim(mouse.data) # 12,150 genes and 8,203 cells 
-
+dim(mouse.data) # 12,150 genes and 8,193 cells 
 
 # Write data to file for easy use later
 write.csv(mouse.data, "output/tables/Mouse_Sp_and_Bl_samples_raw.csv")
+saveRDS(mouse.data, "Exported_RDS_files/Mouse_Sp_and_Bl_samples_raw.RDS")
+saveRDS(spleen.raw, "Exported_RDS_files/Mouse_Sp_samples_raw.RDS")
+saveRDS(blood.raw, "Exported_RDS_files/Mouse_Bl_samples_raw.RDS")
+
+#########################
+# Merge metadata
+#########################
+
+# Annotate the cell ids so can be identified later
+
+rownames(Mouse1Spleen_metadata) <- paste0(Mouse1Spleen_metadata$X, "_Sp1")
+rownames(Mouse2Spleen_metadata) <- paste0(Mouse2Spleen_metadata$X, "_Sp2")
+rownames(Mouse3Spleen_metadata) <- paste0(Mouse3Spleen_metadata$X, "_Sp3")
+
+rownames(Mouse1Blood_metadata) <- paste0(Mouse1Blood_metadata$X, "_Bl1")
+rownames(Mouse2Blood_metadata) <- paste0(Mouse2Blood_metadata$X, "_Bl2")
+rownames(Mouse3Blood_metadata)<- paste0(Mouse3Blood_metadata$X, "_Bl3")
+
+
+# Mouse_3_spleen used a res = 0.5 whereas everythingelse, clusters were calculated on res = 0.7. 
+# remove this and other un-needed variables 
+
+colnames(Mouse1Spleen_metadata)
+
+Mouse1Spleen_metadata <- Mouse1Spleen_metadata[, -c(1, 4, 6)]
+Mouse2Spleen_metadata <- Mouse2Spleen_metadata[, -c(1, 4, 6)]
+Mouse3Spleen_metadata <- Mouse3Spleen_metadata[, -c(1, 4, 6)]
+
+Mouse1Blood_metadata <- Mouse1Blood_metadata[, -c(1, 4, 6)]
+Mouse2Blood_metadata <- Mouse2Blood_metadata[, -c(1, 4, 6)]
+Mouse3Blood_metadata <- Mouse3Blood_metadata[, -c(1, 4, 6)]
+
+
+mouse.metadata <- rbind(Mouse1Spleen_metadata, Mouse2Spleen_metadata, Mouse3Spleen_metadata, 
+                        Mouse1Blood_metadata, Mouse2Blood_metadata, Mouse3Blood_metadata)
+
+head(Mouse.metadata)
+
+
+# Write data to file for easy use later
+write.csv(mouse.metadata, "output/tables/Mouse_Sp_and_Bl_metadata.csv")
+saveRDS(mouse.metadata, "Exported_RDS_files/Mouse_Sp_and_Bl_metadata.RDS")
+
 
 # remove large datafiles
-rm(sample1m, sample2m,
-   sample3m, sample4m,
-   sample5m, sample6m, 
-   spleen.raw, mouse.data,
-   blood.raw)
+rm(sample1m, sample2m, sample3m, 
+   sample4m, sample5m, sample6m, 
+   spleen.raw, mouse.data, blood.raw, 
+   mouse.metadata, Mouse1Spleen_metadata, Mouse2Spleen_metadata, Mouse3Spleen_metadata, 
+   Mouse1Blood_metadata, Mouse2Blood_metadata, Mouse3Blood_metadata)
 
 ```
 
 # Uses input from previous code chunk
 ```{r create_Seurat_object}
 
-human.data <- read.csv("output/tables/Human_Sp_and_Bl_samples_raw.csv")
-dim(human.data)
-human.data[1:10, 1:10]
+mouse.data <- readRDS("Exported_RDS_files/Mouse_Sp_and_Bl_samples_raw.RDS")
+mouse.metadata <- readRDS("Exported_RDS_files/Mouse_Sp_and_Bl_metadata.RDS")
 
-rownames(human.data) <- human.data$X
-human.data <- human.data[, -1]
-
-
-#spleen.logic <- grepl("_Sp", colnames(human.data))
-#blood.logic <- grepl("_Bl", colnames(human.data))
-
-#spleen.data <- human.data[, spleen.logic]
-#blood.data <- human.data[, blood.logic]
-
-
-
-
-temp.data <- read.csv("Data/Metadata/Mouse2Blood_metadata.csv")
-head(temp.data)
-tail(temp.data)
-
-
-
-data.list <- list.files("Data/Metadata", pattern = ".csv")
-
-
-#################
-# Mouse dataset 
-#################
-
-# Create name variable
-file.names <- gsub("_.*", "", data.list)
-file.names <- gsub(".csv", "", file.names)
-
-# Read in human samples
-for (i in seq_along(data.list)){
-  assign(file.names[i], read.csv(paste0("Data/Metadata/", data.list[i])))
-}
+dim(mouse.data)
+mouse.data[1:10, 1:10]
 
 
 # Initialize the Seurat object with the raw (non-normalized data).  
 # Keep all genes expressed in >= 3 cells. 
 # Keep all cells with at least 200 detected genes
 
-human.seurat <- CreateSeuratObject(counts = human.data, 
+mouse.seurat <- CreateSeuratObject(counts = mouse.data,
+                                   meta.data = mouse.metadata, 
                                     min.cells = 3, 
                                     min.genes = 200,
                                     is.expr = 0, # for UMI datasets this should be 0, and is default
-                                    project = "Human_NK",
+                                    project = "Mouse_NK",
                                     display.progress = TRUE)
 
+mouse.seurat@meta.data
 
-human.seurat
-
-saveRDS(human.seurat, "Exported_RDS_files/Human_raw_Seurat_Object.RData")
+saveRDS(mouse.seurat, "Exported_RDS_files/Mouse_raw_Seurat_Object.RData")
 
 ```
 
@@ -351,9 +304,7 @@ saveRDS(human.seurat, "Exported_RDS_files/Human_raw_Seurat_Object.RData")
 #  Get percentage Mitochondria gene expression
 ################################################
 
-
-
-species.ori <- "human"
+species.ori <- "mouse"
 
 if (species.ori == "mouse") {
   pat <- "^mt-"
@@ -362,62 +313,44 @@ if (species.ori == "mouse") {
 }
   
 
-human.seurat[["percent.mito"]] <- PercentageFeatureSet(human.seurat, pattern = paste0(pat))
+mouse.seurat[["percent.mito.recalc"]] <- PercentageFeatureSet(mouse.seurat, pattern = paste0(pat))
 
 
-VlnPlot(human.seurat, 
-        features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), 
+VlnPlot(mouse.seurat, 
+        features = c("nFeature_RNA", "nCount_RNA"),
         pt.size = 0.1)
 
 dev.copy(pdf, "output/QC/QC_nFeature_nCount_RNA_percentMito.pdf")
 dev.off()
 
 
-VlnPlot(human.seurat, 
-              features = "percent.mito", 
-              pt.size = 0.1, 
-              y.max = 20) 
+VlnPlot(mouse.seurat, 
+        features = c("percent.mito", "percent.mito.recalc"), 
+        pt.size = 0.1)
+
 
 dev.copy(pdf, "output/QC/QC_percentMito.pdf")
 dev.off()
 
 
-
-head(human.seurat@meta.data)
-str(human.seurat@meta.data)
-
 #  Filter cells
 # Remove cells with < 200 genes, and remove cells with > 10% mitochondrial genes
-
-human.seurat.filt <- subset(human.seurat, 
-                             subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mito < 10)
-
+mouse.seurat.filt <- subset(mouse.seurat, 
+                             subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mito.recalc < 10)
 
 
 
 
 # Vis after filtering
-VlnPlot(human.seurat,
-        features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), 
-        pt.size = 0.1)
 
-VlnPlot(human.seurat.filt, 
-        features = c("nFeature_RNA", "nCount_RNA", "percent.mito"), 
-        pt.size = 0.1)
-
-dev.copy(pdf, "output/QC/QC_nFeature_nCount_RNA_percentMito_Post_filtering.pdf")
-dev.off()
-
-
-# Mitopercent
-p1 <- VlnPlot(human.seurat, 
-              features = "percent.mito", 
+p1 <- VlnPlot(mouse.seurat, 
+              features = "percent.mito.recalc", 
               pt.size = 0.1, 
               y.max = 20) + NoLegend() + 
   ggtitle("Before filtering")
 
-p2 <- VlnPlot(human.seurat.filt, 
-              features = "percent.mito", 
+p2 <- VlnPlot(mouse.seurat.filt, 
+              features = "percent.mito.recalc", 
               pt.size = 0.1, 
               y.max = 20) + NoLegend() + 
   ggtitle("After filtering")
@@ -427,13 +360,39 @@ p1 | p2
 dev.copy(pdf, "output/QC/QC_percentMito_filtering.pdf")
 dev.off()
 
+
+p1 <- VlnPlot(mouse.seurat, 
+              features = "nFeature_RNA", 
+              pt.size = 0.1, 
+              y.max = 2500) + NoLegend() + 
+  ggtitle("Before filtering")
+
+p2 <- VlnPlot(mouse.seurat.filt, 
+              features = "nFeature_RNA", 
+              pt.size = 0.1, 
+              y.max = 2500) + NoLegend() + 
+  ggtitle("After filtering")
+
+p1 | p2
+
+dev.copy(pdf, "output/QC/QC_nFeature_RNA_filtering.pdf")
+dev.off()
+
+
 # Stats
-human.seurat # 12,236 genes across 8,480 cells
-human.seurat.filt # 12,236 genes across 83,51 cells
+mouse.seurat # 12,121 genes across 8,193 cells
+mouse.seurat.filt # 12,121 genes across 8,180 cells
 
 # Therefore
-8480 - 8351
-# 3129 cells were deleted
+8193 - 8180
+# 13 cells were deleted
+
+
+
+
+
+
+
 
 
 ####################################
@@ -441,16 +400,34 @@ human.seurat.filt # 12,236 genes across 83,51 cells
 ####################################
 
 #  Add organ label to metadata
-organ <- rownames(human.seurat.filt@meta.data)
+organ <- rownames(mouse.seurat.filt@meta.data)
 organ <- gsub(".*_","", organ)
 organ <- gsub("Sp","Spleen", organ)
 organ <- gsub("Bl","Blood", organ)
-human.seurat.filt@meta.data$organ <- organ
+organ <- gsub("[[:digit:]]","", organ)
+mouse.seurat.filt@meta.data$organ <- organ
+
+
+
+
+########################################
+# Analysis up to here
+########################################
+
+
+
+
+
+
+
+
+
+
 
 
 
 # QC plots subset by organ assignment
-VlnPlot(human.seurat.filt, 
+VlnPlot(mouse.seurat.filt, 
         features = c("nFeature_RNA"), 
         group.by = "organ",
         pt.size = 0.1)

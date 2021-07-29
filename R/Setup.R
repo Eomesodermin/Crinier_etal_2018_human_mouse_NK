@@ -14,6 +14,7 @@ set.seed(42)
 
 # Load custom functions
 source("R/Functions/scRNAseq_function.R", local = knitr::knit_global())
+source("R/Functions/Custom_functions_Crinier_etal_dataset_mouse.R", local = knitr::knit_global())
 
 
 ###############################

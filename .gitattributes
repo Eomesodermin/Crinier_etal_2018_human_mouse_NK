@@ -37,3 +37,9 @@ Data/Mouse/Mouse_Meta_data/Mouse1Spleen_metadata.csv filter=lfs diff=lfs merge=l
 Data/Mouse/Mouse_Meta_data/Mouse2Blood_metadata.csv filter=lfs diff=lfs merge=lfs -text
 Data/Mouse/Mouse_samples filter=lfs diff=lfs merge=lfs -text
 Data/Human/Human_samples filter=lfs diff=lfs merge=lfs -text
+Exported_RDS_Files/Mouse_Bl_samples_raw.RDS filter=lfs diff=lfs merge=lfs -text
+Exported_RDS_Files/Mouse_Sp_and_Bl_metadata.RDS filter=lfs diff=lfs merge=lfs -text
+Exported_RDS_Files/Mouse_Sp_and_Bl_samples_raw.RDS filter=lfs diff=lfs merge=lfs -text
+Exported_RDS_Files/Mouse_Sp_samples_raw.RDS filter=lfs diff=lfs merge=lfs -text
+Exported_RDS_Files/Mouse_raw_Seurat_Object.RData filter=lfs diff=lfs merge=lfs -text
+Exported_RDS_Files/human_seurat_filt.rds filter=lfs diff=lfs merge=lfs -text
