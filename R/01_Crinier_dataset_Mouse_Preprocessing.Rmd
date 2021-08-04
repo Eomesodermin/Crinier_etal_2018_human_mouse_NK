@@ -72,6 +72,9 @@ source("R/Load_packages.R", local = knitr::knit_global())
 # Create output directories & load custom functions & colour scheme
 source("R/Setup.R", local = knitr::knit_global())
 
+long.compute <- FALSE
+quick.load <- TRUE
+
 ```
 
 ### Read and format Mouse samples
@@ -146,7 +149,7 @@ spleen.raw <-
   full_join(sample3m,  by = "GeneID") %>%
   arrange(desc = TRUE) %>%
   column_to_rownames(var = "GeneID")
-  
+
 # Blood dataset
 sample4m$GeneID <- row.names(sample4m)
 sample5m$GeneID <- row.names(sample5m)
@@ -161,8 +164,8 @@ blood.raw <-
 
 # Checking all genes were merged 
 spleen.geneIDs <- unique(c(as.character(sample1m$GeneID), 
-                          as.character(sample2m$GeneID), 
-                          as.character(sample3m$GeneID)))
+                           as.character(sample2m$GeneID), 
+                           as.character(sample3m$GeneID)))
 
 length(spleen.geneIDs) == nrow(spleen.raw)
 
@@ -267,7 +270,7 @@ rm(sample1m, sample2m, sample3m,
 
 ```
 
-# Uses input from previous code chunk
+# Create seurat object
 ```{r create_Seurat_object}
 
 mouse.data <- readRDS("Exported_RDS_files/Mouse_Sp_and_Bl_samples_raw.RDS")
@@ -283,22 +286,33 @@ mouse.data[1:10, 1:10]
 
 mouse.seurat <- CreateSeuratObject(counts = mouse.data,
                                    meta.data = mouse.metadata, 
-                                    min.cells = 3, 
-                                    min.genes = 200,
-                                    is.expr = 0, # for UMI datasets this should be 0, and is default
-                                    project = "Mouse_NK",
-                                    display.progress = TRUE)
+                                   min.cells = 3, 
+                                   min.genes = 200,
+                                   is.expr = 0, # for UMI datasets this should be 0, and is default
+                                   project = "Mouse_NK",
+                                   display.progress = TRUE)
 
-mouse.seurat@meta.data
+
+
+# Create metadata
+donor.ID <- gsub(".*_", "", rownames(mouse.seurat@meta.data))
+organ <- gsub("[[:digit:]]", "", donor.ID)
+organ <- gsub("Sp", "Spleen", organ)
+organ <- gsub("Bl", "Blood", organ)
+unique(organ)
+
+
+mouse.seurat@meta.data$donor <- donor.ID
+mouse.seurat@meta.data$organ <- organ
 
 saveRDS(mouse.seurat, "Exported_RDS_files/Mouse_raw_Seurat_Object.RData")
 
 ```
 
 
-## Analysis {.tabset}
-### QC & Normalisation
-```{r QC_and_normalisation}
+## QC and Norm {.tabset}
+### QC
+```{r QC}
 
 ################################################
 #  Get percentage Mitochondria gene expression
@@ -311,7 +325,7 @@ if (species.ori == "mouse") {
 }else if (species.ori == "human"){
   pat <- "^MT-"
 }
-  
+
 
 mouse.seurat[["percent.mito.recalc"]] <- PercentageFeatureSet(mouse.seurat, pattern = paste0(pat))
 
@@ -336,9 +350,7 @@ dev.off()
 #  Filter cells
 # Remove cells with < 200 genes, and remove cells with > 10% mitochondrial genes
 mouse.seurat.filt <- subset(mouse.seurat, 
-                             subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mito.recalc < 10)
-
-
+                            subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mito.recalc < 10)
 
 
 # Vis after filtering
@@ -388,13 +400,6 @@ mouse.seurat.filt # 12,121 genes across 8,180 cells
 # 13 cells were deleted
 
 
-
-
-
-
-
-
-
 ####################################
 # Annotating data by organ origin
 ####################################
@@ -408,24 +413,6 @@ organ <- gsub("[[:digit:]]","", organ)
 mouse.seurat.filt@meta.data$organ <- organ
 
 
-
-
-########################################
-# Analysis up to here
-########################################
-
-
-
-
-
-
-
-
-
-
-
-
-
 # QC plots subset by organ assignment
 VlnPlot(mouse.seurat.filt, 
         features = c("nFeature_RNA"), 
@@ -437,7 +424,7 @@ dev.off()
 
 
 # QC plots subset by organ assignment
-VlnPlot(human.seurat.filt, 
+VlnPlot(mouse.seurat.filt, 
         features = c("nCount_RNA"), 
         group.by = "organ",
         pt.size = 0.1)
@@ -447,8 +434,8 @@ dev.off()
 
 
 # QC plots subset by organ assignment
-VlnPlot(human.seurat.filt, 
-        features = c("percent.mito"), 
+VlnPlot(mouse.seurat.filt, 
+        features = c("percent.mito.recalc"), 
         group.by = "organ",
         pt.size = 0.1)
 
@@ -456,36 +443,76 @@ dev.copy(pdf, "output/QC/QC_percentMito_postfiltering_byorgan.pdf")
 dev.off()
 
 
+
+```
+
+
+### Filtering dataset and subsetting dataset 
+```{r filtering_and_subsetting_dataset}
+
+##################
+# Filter dataset 
+##################
+
+# Remove cells with no crinier cluster annotation
+keep.logic <- mouse.seurat.filt@meta.data$cluster != "none"
+cells.keep <- rownames(mouse.seurat.filt@meta.data)[keep.logic]
+
+mouse.seurat.filt <- subset(mouse.seurat.filt, cells = cells.keep)
+
+
+
+# Split dataset by organ
+Idents(mouse.seurat.filt) <- mouse.seurat.filt@meta.data$organ
+
+
+spleen.seurat.filt <- subset(mouse.seurat.filt, idents = "Spleen")
+blood.seurat.filt <- subset(mouse.seurat.filt, idents = "Blood")
+
+
+```
+
+
+
+### Normalise datasets 
+```{r normalise_datasets}
+
 ################################################
 # Normalise, scale & find variable genes 
 ################################################
 
-# Normalise RNA data by logNormalize
-human.seurat.filt <- NormalizeData(human.seurat.filt,
-                                    normalization.method = "LogNormalize",
-                                    scale.factor = 10000,
-                                    verbose = TRUE)
+
+datasets.list <- list(mouse.seurat.filt, spleen.seurat.filt,  blood.seurat.filt)
+names(datasets.list)  <- c("Complete", "Spleen", "Blood")
+
+for(i in seq_along(datasets.list)){
+  
+  # Normalise RNA data by logNormalize
+  datasets.list[[i]] <- NormalizeData(datasets.list[[i]],
+                                      normalization.method = "LogNormalize",
+                                      scale.factor = 10000,
+                                      verbose = TRUE)
+  
+  
+  # Find variable genes
+  datasets.list[[i]] <- FindVariableFeatures(datasets.list[[i]],
+                                             nfeatures = 1000,
+                                             verbose = TRUE)
+  
+  # Scale data
+  datasets.list[[i]] <- ScaleData(datasets.list[[i]],
+                                  vars.to.regress = c("nCount_RNA", "percent.mito.recalc"),
+                                  model.use = "linear",
+                                  do.scale = TRUE,
+                                  do.center = TRUE,
+                                  verbose = TRUE)
+  
+  
+}
 
 
-# Find variable genes
-human.seurat.filt <- FindVariableFeatures(human.seurat.filt,
-                                           nfeatures = 1000,
-                                           verbose = TRUE)
-
-human.seurat.filt <- ScaleData(human.seurat.filt,
-                                vars.to.regress = c("nCount_RNA", "percent.mito"),
-                                model.use = "linear",
-                                do.scale = TRUE,
-                                do.center = TRUE,
-                                verbose = TRUE)
-
-
-###############################
 # Remove unneeded variables
-###############################
-
-rm(human.seurat,
-   human.data)
+rm(mouse.seurat)
 
 ```
 
@@ -496,51 +523,20 @@ rm(human.seurat,
 ### Clustering
 ```{r Initial_clustering}
 
-# Create output dir
-if(!dir.exists("output/figures/PCA")){
-  dir.create("output/figures/PCA", 
-             recursive = T)}
-
-
-
 # Set seed for reproducibility
 set.seed(42)
-
-###########
-# Run PCA
-###########
-human.seurat.filt <- RunPCA(human.seurat.filt, 
-                             features = human.seurat.filt@assays$RNA@var.features,
-                             npcs = 50,
-                             verbose = TRUE, 
-                             rev.pca = TRUE,
-                             seed.use = 42)
-
-
-#########################
-# Plot PCA projection
-#########################
-
-PCAPlot(human.seurat.filt, 
-        dims = c(1, 2),
-        pt.size = 2,
-        group.by = "organ")
-
-dev.copy(pdf, "output/figures/PCA/PCA_by_organ_Dim1_2.pdf")
-dev.off()
-
-PCAPlot(human.seurat.filt, 
-        dims = c(2, 3),
-        pt.size = 2,
-        group.by = "organ")
-
-dev.copy(pdf, "output/figures/PCA/PCA_by_organ_Dim2_3.pdf")
-dev.off()
 
 
 #################################################################
 # Determine statistically significant principal components
 #################################################################
+
+# Use quick approximation of significant PCs
+#ElbowPlot(mouse.seurat.filt, ndims = 30)
+#dev.copy(pdf, "output/QC/PC_elbowplot.pdf")
+#dev.off()
+
+
 
 # NOTE: This process can take a long time for big datasets, comment out for
 # expediency.  More approximate techniques such as those implemented in
@@ -548,39 +544,74 @@ dev.off()
 
 if(long.compute){
   
-  human.seurat.filt <- JackStraw(human.seurat.filt,
-                                  dims = 50)
-  human.seurat.filt <- ScoreJackStraw(human.seurat.filt,
-                                       dims = 1:50)
+  mouse.seurat.filt <- JackStraw(mouse.seurat.filt,
+                                 dims = 50)
+  mouse.seurat.filt <- ScoreJackStraw(mouse.seurat.filt,
+                                      dims = 1:50)
   
-  JackStrawPlot(human.seurat.filt, dims = 1:30)
+  JackStrawPlot(mouse.seurat.filt, dims = 1:30)
   
   dev.copy(pdf, "output/QC/JackStrawPlot.pdf")
   dev.off()
   
 }
 
-# PC 24 = last sig dim
+# PC 21 = last sig dim
+# therefore use 20 dims
 
 
-# Use quick approximation of significant PCs
-ElbowPlot(human.seurat.filt, ndims = 20)
-dev.copy(pdf, "output/QC/PC_elbowplot.pdf")
-dev.off()
+###################################
+# PCA and cluster identification
+###################################
 
 
-##########################
-# Find clusters using PCA
-##########################
+for(i in seq_along(datasets.list)){
+  
+  # Create output dir
+  output.path <- paste0("output/figures/PCA_", names(datasets.list)[i])
+  
+  
+  if(!dir.exists(output.path)){
+    dir.create(output.path, 
+               recursive = TRUE)}
+  
+  # Run PCA
+  datasets.list[[i]] <- RunPCA(datasets.list[[i]], 
+                               features = datasets.list[[i]]@assays$RNA@var.features,
+                               npcs = 20,
+                               verbose = TRUE, 
+                               rev.pca = TRUE,
+                               seed.use = 42)
+  
+  # Plot PCA projection
+  print(PCAPlot(datasets.list[[i]], 
+          dims = c(1, 2),
+          pt.size = 2,
+          group.by = "organ"))
+  
+  dev.copy(pdf, paste0(output.path, "/PCA_by_organ_Dim1_2.pdf"))
+  dev.off()
+  
+  print(PCAPlot(datasets.list[[i]], 
+          dims = c(2, 3),
+          pt.size = 2,
+          group.by = "organ"))
+  
+  dev.copy(pdf, paste0(output.path, "/PCA_by_organ_Dim2_3.pdf"))
+  dev.off()
+  
+  
+  
+  # Find neighbours
+  datasets.list[[i]] <- FindNeighbors(datasets.list[[i]],
+                                      dims = 1:20)
+  
+  # Find clusters
+  datasets.list[[i]] <- FindClusters(datasets.list[[i]],
+                                     resolution = 0.1)
+  
+}
 
-human.seurat.filt <- FindNeighbors(human.seurat.filt,
-                                    dims = 1:20)
-
-human.seurat.filt <- FindClusters(human.seurat.filt,
-                                   resolution = 0.1)
-
-
-# Resolution of 0.1 gives 5 communities
 
 ```
 
@@ -588,93 +619,143 @@ human.seurat.filt <- FindClusters(human.seurat.filt,
 ### UMAP and tSNE dim Reduction
 ```{r Dim_reduction}
 
-# Create output dir
-if(!dir.exists("output/figures/tSNE")){
-  dir.create("output/figures/tSNE", 
-             recursive = T)}
-
-if(!dir.exists("output/figures/UMAP")){
-  dir.create("output/figures/UMAP", 
-             recursive = T)}
 
 
-# Set assay 
-DefaultAssay(human.seurat.filt) <- "RNA"
-
-# Set Idents
-Idents(human.seurat.filt) <- human.seurat.filt@meta.data$organ
-
-##########################
-# tSNE dim reduction
-##########################
-
-# tSNE perplex looks nice at 30
-
-human.seurat.filt <- RunTSNE(human.seurat.filt,
-                              reduction = "pca",
-                              dims = 1:20,
-                              perplexity = 30,
-                              method = "FIt-SNE",
-                              seed.use = 42,
-                              dim.embed = 2)
-
-TSNEPlot(human.seurat.filt,
-         label = TRUE, 
-         group.by = "organ")
-
-dev.copy(pdf, "output/figures/tSNE/tSNE_group_by_organ.pdf")
-dev.off()
-
-
-
-TSNEPlot(human.seurat.filt,
-         label = TRUE, 
-         group.by = "seurat_clusters")
-
-dev.copy(pdf, "output/figures/tSNE/tSNE_group_by_seurat_clusters.pdf")
-dev.off()
-
-
-##########################
-# UMAP dim reduction
-##########################
-# UMAP min dis looks nice at = 0.5
-# and nval = 45
-
-human.seurat.filt <- RunUMAP(human.seurat.filt,
-                              reduction = "pca",
-                              dims = 1:20,
-                              umap.method = "uwot", 
-                              n.neighbors = 45, # 5 to 50 // 45
-                              min.dist = 0.5, # Sensible values are in the range 0.001 to 0.5 // 0.5
-                              seed.use = 42)
-
-# Larger values = global structure
-# small value = local structure
-
-UMAPPlot(human.seurat.filt,
-         label = T,
-         group.by = "organ")
-
-dev.copy(pdf, "output/figures/UMAP/UMAP_group_by_organ.pdf")
-dev.off()
-
-
-UMAPPlot(human.seurat.filt,
-         label = TRUE, 
-         group.by = "seurat_clusters")
-
-dev.copy(pdf, "output/figures/UMAP/UMAP_group_by_seurat_clusters.pdf")
-dev.off()
+for(i in seq_along(datasets.list)){
+  
+  # Set assay 
+  DefaultAssay(datasets.list[[i]]) <- "RNA"
+  
+  # Set Idents
+  Idents(datasets.list[[i]]) <- datasets.list[[i]]@meta.data$organ
+  
+  
+  
+  
+  ##########
+  # TSNE
+  ##########
+  
+  # Create output dir
+  output.path <- paste0("output/figures/tSNE_", names(datasets.list)[i])
+  
+  
+  if(!dir.exists(output.path)){
+    dir.create(output.path, 
+               recursive = TRUE)}
+  
+  
+  
+  
+  datasets.list[[i]] <- RunTSNE(datasets.list[[i]],
+                                reduction = "pca",
+                                dims = 1:20,
+                                perplexity = 30,
+                                method = "FIt-SNE",
+                                seed.use = 42,
+                                dim.embed = 2)
+  
+  print(TSNEPlot(datasets.list[[i]],
+           label = TRUE, 
+           group.by = "organ"))
+  
+  dev.copy(pdf,  paste0(output.path, "/tSNE_by_organ.pdf"))
+  dev.off()
+  
+  
+  
+  print(TSNEPlot(datasets.list[[i]],
+           label = TRUE, 
+           group.by = "seurat_clusters"))
+  
+  dev.copy(pdf, paste0(output.path, "/tSNE_by_seurat_clusters.pdf"))
+  dev.off()
+  
+  
+  # using original author clusters
+  print(TSNEPlot(datasets.list[[i]],
+           label = TRUE, 
+           group.by = "cluster"))
+  
+  dev.copy(pdf, paste0(output.path, "/tSNE_by_crinier_clusters.pdf"))
+  dev.off()
+  
+    print(TSNEPlot(datasets.list[[i]],
+           label = TRUE, 
+           group.by = "donor"))
+  
+  dev.copy(pdf, paste0(output.path, "/tSNE_by_donor.pdf"))
+  dev.off()
+  
+  ##########
+  # UMAP
+  ##########
+  
+  # Create output dir
+  output.path <- paste0("output/figures/UMAP_", names(datasets.list)[i])
+  
+  
+  if(!dir.exists(output.path)){
+    dir.create(output.path, 
+               recursive = TRUE)}
+  
+  
+  datasets.list[[i]] <- RunUMAP(datasets.list[[i]],
+                                reduction = "pca",
+                                dims = 1:20,
+                                umap.method = "uwot", 
+                                n.neighbors = 45, # 5 to 50 // 45
+                                min.dist = 0.5, # Sensible values are in the range 0.001 to 0.5 // 0.5
+                                seed.use = 42)
+  
+  # Larger values = global structure
+  # small value = local structure
+  
+  print(UMAPPlot(datasets.list[[i]],
+           label = T,
+           group.by = "organ"))
+  
+  dev.copy(pdf, paste0(output.path, "/UMAP_by_organ.pdf"))
+  dev.off()
+  
+  print(UMAPPlot(datasets.list[[i]],
+           label = TRUE, 
+           group.by = "seurat_clusters"))
+  
+  dev.copy(pdf, paste0(output.path, "/UMAP_by_seurat_clusters.pdf"))
+  dev.off()
+  
+  # Original Author clusters
+  print(UMAPPlot(datasets.list[[i]],
+           label = TRUE, 
+           group.by = "cluster"))
+  
+  dev.copy(pdf, paste0(output.path, "/UMAP_by_crinier_clusters.pdf"))
+  dev.off()
+  
+  print(UMAPPlot(datasets.list[[i]],
+           label = TRUE, 
+           group.by = "donor"))
+  
+  dev.copy(pdf, paste0(output.path, "/UMAP_by_donor.pdf"))
+  dev.off()
+  
+}
 
 
 ```
 
 
-### Export seurat object
+### Export seurat objects
 ```{r export_seurat_RDS}
 
-saveRDS(human.seurat.filt, file = "Exported_RDS_files/human_seurat_filt.rds")
+for(i in seq_along(datasets.list)){
+
+saveRDS(datasets.list[[i]], file = paste0("Exported_RDS_files/Mouse_", names(datasets.list)[i], "_seurat_filt.rds"))
+
+  
+}
+
 
 ```
 
@@ -685,21 +766,24 @@ saveRDS(human.seurat.filt, file = "Exported_RDS_files/human_seurat_filt.rds")
 ### Imputation calculation
 ```{r seurat_imputation}
 
-# Impute gene expression 
-human.seurat.filt <- RunALRA(human.seurat.filt, 
-                              genes.use = rownames(human.seurat.filt))
 
-#The matrix went from 5.61% nonzero to 53.96% nonzero
+for(i in seq_along(datasets.list)){
+
+# Impute gene expression 
+datasets.list[[i]] <- RunALRA(datasets.list[[i]], 
+                             genes.use = rownames(datasets.list[[i]]))
+
+#The matrix went from 7.41% nonzero to 61.04% nonzero
 
 # set assay 
-DefaultAssay(human.seurat.filt) <- "RNA"
+DefaultAssay(datasets.list[[i]]) <- "RNA"
+
+saveRDS(datasets.list[[i]], file = paste0("Exported_RDS_files/Mouse_", names(datasets.list)[i], "_seurat_filt_imputed.rds"))
+
+
+}
+
 
 ```
 
-### Export seurat object - imputed
-```{r export_imputed_RDS}
-
-saveRDS(human.seurat.filt, file = "Exported_RDS_files/human_seurat_filt.rds")
-
-```
 

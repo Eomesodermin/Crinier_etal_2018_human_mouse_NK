@@ -37,6 +37,8 @@ vignettes/*.pdf
 
 # ignore output files 
 output/**/**
+output_human/**/**
+output_mouse/**/**
 
 # R Environment Variables
 .Renviron
