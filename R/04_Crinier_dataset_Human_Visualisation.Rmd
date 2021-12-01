@@ -1,0 +1,474 @@
+---
+title: "Crinier_dataset_Human_Visualisation"
+author: "Dillon Corvino"
+date: "13/06/2019"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    theme: united
+    highlight: tango
+    df_print: paged
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+Built with R version `r getRversion()`
+
+## Setup {.tabset}
+
+### Dataset information
+```{r Dataset_Info}
+
+# High-Dimensional Single-cell analysis identifies organ-specific signatures and conserved NK cell subsets in Humans and Mice
+# Crinier et al., 2018, Immunity 
+
+# Organs: Blood and Spleen 
+# Species: Human and Mouse
+
+
+# 6 human samples
+# 6 mouse samples
+
+# samples 1-3 = Spleen
+# samples 4-6 = Blood
+
+
+```
+
+### Environment
+```{r setup}
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,  
+  eval = TRUE, 
+  tidy = TRUE
+)
+
+knitr::opts_knit$set(
+  root.dir = "../"
+)
+
+
+# Environment Set up
+rm(list = ls()) #Clean workspace
+cat("\014")     #Clean Console
+gc() # Free memory
+
+# Establish working directory
+library("rstudioapi")
+
+# Set working directory to source file location
+setwd(dirname(getActiveDocumentContext()$path))
+setwd("..")
+
+# Load packages
+source("R/Load_packages.R", local = knitr::knit_global())
+
+# Create output directories & load custom functions & colour scheme
+source("R/Setup.R", local = knitr::knit_global())
+
+long.compute <- FALSE
+quick.load <- TRUE
+
+if(quick.load){
+  
+  human.seurat.filt <- readRDS("Exported_RDS_files/Human_Complete_seurat_filt_imputed.rds")
+  spleen.seurat.filt <- readRDS("Exported_RDS_files/Human_Spleen_seurat_filt_imputed.rds")
+  blood.seurat.filt <- readRDS("Exported_RDS_files/Human_Blood_seurat_filt_imputed.rds")
+  
+  datasets.list <- list(human.seurat.filt, spleen.seurat.filt,  blood.seurat.filt)
+  names(datasets.list)  <- c("Complete", "Spleen", "Blood")
+  
+}
+
+
+```
+
+### Recluster_for_ILC1_like_cluster
+```{r Recluster_for_ILC1_like_Cluster}
+
+
+################################################
+# Identifying ILC1-like NK cell cluster
+################################################
+
+# Code to maybe solve issue caused by matrix. 
+
+#remove.packages("Matrix")
+#packageurl <- "https://cran.r-project.org/src/contrib/Archive/Matrix/Matrix_1.2-18.tar.gz"
+#install.packages(packageurl, repos=NULL, type="source")
+
+#install.packages("SeuratObject")
+# Computing nearest neighbor graph Computing SNN Error in validObject(.Object) : invalid class “Graph” object: superclass "Mnumeric" not defined in the environment of the object's class
+
+
+DefaultAssay(human.seurat.filt) <- "RNA"
+
+
+# Firstly, over-cluster the data
+# Use key genes to visualise where on UMAP the ILC1-like cells sit
+# then reduce clusters based on this
+
+  # Find neighbours
+human.seurat.filt <- FindNeighbors(human.seurat.filt,
+                                   reduction = "umap",
+                                   dims = 1:20)
+  
+# Find clusters
+human.seurat.filt <- FindClusters(human.seurat.filt,
+                                  resolution = 1)
+
+
+
+UMAPPlot(human.seurat.filt, 
+         group.by = "seurat_clusters",
+         label = TRUE)
+
+
+UMAPPlot(human.seurat.filt, 
+         group.by = "organ",
+         label = TRUE)
+
+UMAPPlot(human.seurat.filt, 
+         group.by = "donor",
+         label = TRUE)
+
+
+  # At resolution = 1, 
+
+human.seurat.filt <- RenameIdents(human.seurat.filt,
+                                  "0" = 'NK_cells', 
+                                  "1" = 'NK_cells', 
+                                  "2" = 'NK_cells', 
+                                  "3" = 'NK_cells', 
+                                  "4" = 'NK_cells', 
+                                  "5" = 'NK_cells', 
+                                  "6" = 'NK_cells', 
+                                  "7" = 'NK_cells', 
+                                  "8" = 'NK_cells', 
+                                  '9' = 'ILC1-like',
+                                  "10" = 'NK_cells', 
+                                  "11" = 'NK_cells', 
+                                  "12" = 'NK_cells', 
+                                  "13" = 'NK_cells', 
+                                  "14" = 'NK_cells')
+
+  
+human.seurat.filt@meta.data$seurat_clusters <- Idents(human.seurat.filt)
+
+DefaultAssay(human.seurat.filt) <- "RNA"
+
+
+markers.vec <- FindAllMarkers(human.seurat.filt,
+                              only.pos = FALSE)
+
+top.genes <- markers.vec %>%
+  dplyr::filter(p_val_adj < 0.05) %>%
+  group_by(cluster) %>%
+  top_n(30, avg_log2FC) %>%
+  pull(gene)
+
+
+small.object <- subset(human.seurat.filt, downsample = 300)
+
+
+DefaultAssay(small.object) <- "alra"
+
+small.object <- ScaleData(small.object)
+
+
+goi <- c("LTB", "IL7R", "KIT", "BATF3", "DLL1", "ID3", "INPP4B", "DPP4", "IL2RA", "ITGA1", "EOMES", "SELL", "KLRG1", "TNFSF10", "NKG7", "TNF", "GZMA", "GZMB", "PRF1", "CD7", "CD9")
+
+
+DoHeatmap(small.object,
+          assay = "alra",
+          features = goi, 
+          draw.lines = FALSE)
+
+
+DefaultAssay(human.seurat.filt) <- "alra"
+
+
+output.dir <- "output/figures/Key_marker_genes"
+
+
+  if(!dir.exists(paste0(output.dir))){
+    dir.create(paste0(output.dir), 
+               recursive = TRUE)}
+
+
+
+for(i in seq_along(goi)){
+  if(goi[i] %in% rownames(human.seurat.filt@assays$alra@data)){
+    
+    print(FeaturePlot(human.seurat.filt, 
+                      feature = goi[i]))
+    
+    dev.copy(pdf, paste0(output.dir, "/FeaturePlot_", goi[i], "_imputed.pdf"))
+    dev.off()
+    
+    print(VlnPlot(human.seurat.filt, 
+                  feature = goi[i],
+                  assay = "alra",
+                  pt.size = 0.1))
+    
+    dev.copy(pdf, paste0(output.dir, "/VlnPlot_", goi[i], "_imputed.pdf"))
+    dev.off()
+  }
+}
+
+
+
+
+
+
+
+
+
+
+VlnPlot(human.seurat.filt, 
+                  feature = "Up_sig1",
+                  pt.size = 0.1)
+
+
+
+
+
+average.object <- AverageExpression(human.seurat.filt, return.seurat = TRUE)
+
+
+DefaultAssay(average.object) <- "alra"
+
+average.object <- ScaleData(average.object)
+
+
+DoHeatmap(average.object,
+          assay = "alra",
+          features = goi, 
+          draw.lines = FALSE)
+
+
+
+
+
+
+VlnPlot(human.seurat.filt,
+        assay = "alra",
+        features = "LTB",
+        pt.size = 0.1,
+        group.by = "seurat_clusters")
+
+
+prop.table(table(human.seurat.filt@meta.data$seurat_clusters))* 100
+
+
+DefaultAssay(human.seurat.filt) <- "alra"
+
+
+
+goi <- c("CD7", "SELL", "CD160", "ITGAM", "CXCR6", "ITGA1", "ITGA2", "CD226", "EOMES", "IL7R", LTB)
+goi <- Up.genes
+
+
+
+FeaturePlot(human.seurat.filt, 
+            feature = "LTB")
+
+
+human.seurat.filt@meta.data$Up_sig1
+
+
+rownames(human.seurat.filt@assays$RNA@data)[grepl("CD2", rownames(human.seurat.filt@assays$RNA@data))]
+
+
+goi <- c("LTB", "KIT", "CD160", "IL7R", "NKG7", "GZMA", "IFNG", "IFNGR1", "IFNGR2", "EOMES")
+
+sort(rowSums(human.seurat.filt@assays$RNA@data), decreasing = T)[20:30]
+
+
+rownames(human.seurat.filt@assays$RNA@data)
+
+
+FeaturePlot(human.seurat.filt,
+              "ZNF683", 
+              pt.size = 0.5,
+              order = TRUE)
+
+
+
+Up.genes
+
+VlnPlot(human.seurat.filt,
+              "Dn_sig1", pt.size = 0.1)
+
+
+
+
+```
+ 
+ 
+ 
+### Visualise
+```{r Visualise}
+
+output.dir <- "output/figures/CD160_signature"
+
+
+  if(!dir.exists(paste0(output.dir))){
+    dir.create(paste0(output.dir), 
+               recursive = TRUE)}
+
+ if(!dir.exists(paste0(output.dir, "/VlnPlots"))){
+    dir.create(paste0(output.dir, "/VlnPlots"), 
+               recursive = TRUE)}
+
+
+ if(!dir.exists(paste0(output.dir, "/UMAP"))){
+    dir.create(paste0(output.dir, "/UMAP"), 
+               recursive = TRUE)}
+
+ if(!dir.exists(paste0(output.dir, "/Density_UMAP"))){
+    dir.create(paste0(output.dir, "/Density_UMAP"), 
+               recursive = TRUE)}
+
+
+
+
+
+
+
+# Read in CD160 signature
+CD160.sig <- read.csv("Data/QLF_S.PosvsNeg.csv")
+
+Up.genes <- 
+  CD160.sig %>%
+  dplyr::filter(FDR < 0.05) %>%
+  dplyr::top_n(100, logFC) %>%
+  dplyr::arrange(desc(logFC)) %>%
+  dplyr::pull(genes)
+
+Up.genes <- toupper(Up.genes)
+
+
+
+Dn.genes <- 
+  CD160.sig %>%
+  dplyr::filter(FDR < 0.05) %>%
+  dplyr::top_n(-100, logFC) %>%
+  dplyr::arrange(logFC) %>%
+  dplyr::pull(genes)
+
+Dn.genes <- toupper(Dn.genes)
+
+
+
+
+##########################
+# Do signature scoring
+##########################
+
+# Set default assay to RNA
+DefaultAssay(human.seurat.filt) <- "RNA"
+
+
+human.seurat.filt <- AddModuleScore(human.seurat.filt, 
+                                    features = list(Up.genes), 
+                                    name = "Up_sig",
+                                    ctrl = 80,
+                                    seed = 42)
+
+human.seurat.filt <- AddModuleScore(human.seurat.filt, 
+                                    features = list(Dn.genes), 
+                                    name = "Dn_sig",
+                                    ctrl = 80,
+                                    seed = 42)
+
+
+#########################################
+# Visualise signature and sig genes
+#########################################
+
+DefaultAssay(mouse.seurat.filt) <- "alra"
+
+
+
+for(i in seq_along(Up.genes)){
+  
+  
+  if(Up.genes[i] %in% rownames(mouse.seurat.filt@assays$alra@data)){
+  print(VlnPlot(mouse.seurat.filt,
+        assay = "alra",
+        features = paste0(Up.genes[i]),
+        pt.size = 0.1,
+        group.by = "seurat_clusters"))
+
+  
+  dev.copy(pdf, paste0(output.dir, "/VlnPlots/VlnPlot_", Up.genes[i], "_imputed.pdf"))
+  dev.off()
+  
+  
+  
+  print(Nebulosa::plot_density(mouse.seurat.filt,
+                         paste0(Up.genes[i])))
+  
+dev.copy(pdf, paste0(output.dir, "/Density_UMAP/Nebulosa_", Up.genes[i], "_imputed.pdf"))
+  dev.off()
+  
+  
+  print(FeaturePlot(mouse.seurat.filt,
+              paste0(Up.genes[i]), 
+              pt.size = 0.5,
+              order = TRUE))
+  
+dev.copy(pdf, paste0(output.dir, "/UMAP/FeaturePlot_", Up.genes[i], "_imputed.pdf"))
+  dev.off()
+  
+  
+  }
+  
+}
+
+
+
+
+VlnPlot(mouse.seurat.filt, 
+        "Up_sig1", 
+        group.by = "seurat_clusters",
+        pt.size = 0.1)
+
+dev.copy(pdf, paste0(output.dir, "/Cd160_signature_upregulated_genes_imputed.pdf"))
+dev.off()
+
+
+VlnPlot(mouse.seurat.filt,
+        "Dn_sig1",
+        group.by = "seurat_clusters", 
+        pt.size = 0.1)
+
+dev.copy(pdf, paste0(output.dir, "/Cd160_signature_downregulated_genes_imputed.pdf"))
+dev.off()
+
+
+
+
+
+
+ILC1.signature <- c("Cd160", "Xcl1", "Crtam", "Batf3", "Id3", "Ltb", "Tnfsf10")
+NK.signature <- c("Itgam", "Eomes", "Gzmb")
+
+
+
+VlnPlot(mouse.seurat.filt,
+        "Up_sig1",
+        group.by = "seurat_clusters", 
+        split.by = "organ",
+        pt.size = 0.1)
+
+
+
+```

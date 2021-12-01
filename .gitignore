@@ -40,5 +40,9 @@ output/**/**
 output_human/**/**
 output_mouse/**/**
 
+# Ignore archived rds files
+exported_RDS_files/Archive/**
+
+
 # R Environment Variables
 .Renviron
