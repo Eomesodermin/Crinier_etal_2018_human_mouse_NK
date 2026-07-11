@@ -1,2 +1,25 @@
-# Crinier_etal_Human_Mouse_NK
-Pre-processing for Crinier et al., Human and Mouse spleen and blood NK cell dataset
+# Crinier et al. 2018 — human & mouse NK cell subsets (re-analysis)
+
+Re-analysis of the publicly available single-cell dataset from:
+
+> **Crinier A, Milpied P, Escalière B, et al. High-Dimensional Single-Cell Analysis Identifies Organ-Specific Signatures and Conserved NK Cell Subsets in Humans and Mice.**  
+> *Immunity* 2018. https://doi.org/10.1016/j.immuni.2018.09.009  
+> Data: See original publication (Immunity 2018)
+
+## Dataset at a glance
+- **System:** Human and mouse spleen & blood NK cells
+- **Assay:** Smart-seq2 / 10x scRNA-seq
+- **Accession / source:** See original publication (Immunity 2018)
+
+## What this repository does
+Preprocesses and visualises human and mouse spleen/blood NK-cell scRNA-seq, including IKAP-based clustering, to compare conserved NK-cell subsets across species. See the numbered `R/01–04_Crinier_dataset_*.Rmd` scripts.
+
+## Repository structure
+- `R/` — analysis pipeline (numbered `.Rmd` scripts run in order)
+- `Setup.R` / `Load_packages.R` — environment setup and package loading
+- Large data objects are **not** tracked in Git — download from the source above.
+- `renv.lock` — pinned package versions for reproducibility (`renv::restore()`).
+
+---
+Part of my NK / T-cell single-cell research programme — see my [GitHub profile](https://github.com/Eomesodermin) and [dilloncorvino.com](https://dilloncorvino.com).  
+Author: **Dillon Corvino**
